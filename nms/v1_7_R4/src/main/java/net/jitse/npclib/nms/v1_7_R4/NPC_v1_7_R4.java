@@ -99,6 +99,11 @@ public class NPC_v1_7_R4 extends NPC {
         }
     }
 
+    @Override
+    public void updateText(List<String> lines) {
+        // Does nothing (no hologram available).
+    }
+
     private GameProfile generateLegacyGameProfile(UUID uuid, String name) {
         GameProfile gameProfile = new GameProfile(uuid, name);
 

@@ -13,7 +13,6 @@ import net.jitse.npclib.nms.v1_13_R1.packets.PacketPlayOutScoreboardTeamWrapper;
 import net.jitse.npclib.skin.Skin;
 import net.minecraft.server.v1_13_R1.*;
 import org.bukkit.Bukkit;
-
 import org.bukkit.craftbukkit.v1_13_R1.entity.CraftPlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -101,5 +100,10 @@ public class NPC_v1_13_R1 extends NPC {
         } else {
             playerConnection.sendPacket(packetPlayOutScoreboardTeamUnregister);
         }
+    }
+
+    @Override
+    public void updateText(List<String> lines) {
+        hologram.updateText(lines);
     }
 }

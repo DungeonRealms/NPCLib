@@ -5,14 +5,12 @@
 package net.jitse.npclib.nms.holograms;
 
 import com.comphenix.tinyprotocol.Reflection;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author Jitse Boonstra
@@ -21,9 +19,10 @@ public class Hologram {
 
     private final double delta = 0.3;
 
+    private Set<UUID> shown = new HashSet<>();
     private List<Object> armorStands = new ArrayList<>();
-    private Set<Object> spawnPackets = new HashSet<>();
-    private Set<Object> destroyPackets = new HashSet<>();
+    private List<Object> spawnPackets = new LinkedList<>();
+    private List<Object> destroyPackets = new LinkedList<>();
 
     // Classes:
     private static final Class<?> CHAT_COMPONENT_TEXT_CLAZZ = Reflection.getMinecraftClass("ChatComponentText");
@@ -72,8 +71,10 @@ public class Hologram {
             "getId");
 
     private final Location start;
-    private final List<String> lines;
     private final Object worldServer;
+
+    private boolean above_1_12_r1;
+    private List<String> lines;
 
     public Hologram(Location location, List<String> lines) {
         this.start = location;
@@ -85,6 +86,8 @@ public class Hologram {
     }
 
     public void generatePackets(boolean above1_9_r2, boolean above_1_12_r1) {
+        this.above_1_12_r1 = above_1_12_r1;
+
         Reflection.MethodInvoker gravityMethod = (above1_9_r2 ? Reflection.getMethod(ENTITY_CLAZZ,
                 "setNoGravity", boolean.class) : Reflection.getMethod(ENTITY_ARMOR_STAND_CLAZZ,
                 "setGravity", boolean.class));
@@ -121,10 +124,6 @@ public class Hologram {
 
             location.subtract(0, delta, 0);
 
-            if (line.isEmpty()) {
-                continue;
-            }
-
             armorStands.add(entityArmorStand);
 
             Object spawnPacket = PACKET_PLAY_OUT_SPAWN_ENTITY_LIVING_CONSTRUCTOR.invoke(entityArmorStand);
@@ -136,37 +135,98 @@ public class Hologram {
         }
     }
 
-//    public void updateText(List<String> newLines) {
-//        if (lines.size() != newLines.size()) {
-//            throw new IllegalArgumentException("New NPC text cannot differ in size from old text.");
-//            return;
-//        }
-//
-//        int i = 0;
-//        for (String oldLine : lines) {
-//            if (oldLine.isEmpty() && !newLines.get(i).isEmpty()) {
-//                // Need to spawn
-//            }
-//            i++;
-//        }
-//        customNameMethod.invoke(entityArmorStand, above_1_12_r1 ? CHAT_COMPONENT_TEXT_CONSTRUCTOR.invoke(line) : line);
-//    }
+    public void updateText(List<String> newLines) {
+        if (lines.size() != newLines.size()) {
+            throw new IllegalArgumentException("New NPC text cannot differ in size from old text.");
+        }
+
+        Reflection.MethodInvoker customNameVisibilityMethod = (above_1_12_r1 ? Reflection.getMethod(ENTITY_CLAZZ,
+                "setCustomNameVisible", boolean.class) : Reflection.getMethod(ENTITY_ARMOR_STAND_CLAZZ,
+                "setCustomNameVisible", boolean.class));
+
+        Reflection.MethodInvoker customNameMethod = (above_1_12_r1 ? Reflection.getMethod(ENTITY_CLAZZ,
+                "setCustomName", CHAT_BASE_COMPONENT_CLAZZ) : Reflection.getMethod(ENTITY_ARMOR_STAND_CLAZZ,
+                "setCustomName", String.class));
+
+        int i = 0;
+        for (String oldLine : lines) {
+            if (oldLine.isEmpty() && !newLines.get(i).isEmpty()) {
+                // Need to spawn
+                for (UUID uuid : shown) {
+                    Player player = Bukkit.getPlayer(uuid);
+                    Object playerConnection = playerConnectionField.get(PLAYER_GET_HANDLE_METHOD
+                            .invoke(CRAFT_PLAYER_CLAZZ.cast(player)));
+                    SEND_PACKET_METHOD.invoke(playerConnection, spawnPackets.get(i));
+                }
+            } else if (!oldLine.isEmpty() && newLines.get(i).isEmpty()) {
+                // Need to destroy
+                for (UUID uuid : shown) {
+                    Player player = Bukkit.getPlayer(uuid);
+                    Object playerConnection = playerConnectionField.get(PLAYER_GET_HANDLE_METHOD
+                            .invoke(CRAFT_PLAYER_CLAZZ.cast(player)));
+                    SEND_PACKET_METHOD.invoke(playerConnection, destroyPackets.get(i));
+                }
+            }
+
+            // TODO: Send PacketPlayOutEntityMetadata to all players (that the hologram is visible to).
+//            PacketPlayOutEntityMetadata packet = new PacketPlayOutEntityMetadata();
+//            Object armorstand = armorStands.get(i);
+//            int entityId = (int) Reflection.getMethod(EntityArmorStand.class, "getId", int.class).invoke(armorstand);
+//            Reflection.getField(PacketPlayOutEntityMetadata.class, "a", int.class).set(packet, entityId);
+//            List list = Collections.singletonList(new WatchableObject(entityId, value));
+//            Reflection.getField(EntityArmorStand.class, "b", List.class).set(packet, list);
+
+            Object entityArmorStand = armorStands.get(i);
+            String newLine = newLines.get(i);
+            customNameMethod.invoke(entityArmorStand, above_1_12_r1 ? CHAT_COMPONENT_TEXT_CONSTRUCTOR.invoke(newLine) : newLine);
+
+            i++;
+        }
+
+        this.lines = newLines;
+    }
 
     public void spawn(Player player) {
+        if (shown.contains(player.getUniqueId())) {
+            throw new IllegalArgumentException("Hologram is already shown to player");
+        }
+
+        shown.add(player.getUniqueId());
+
         Object playerConnection = playerConnectionField.get(PLAYER_GET_HANDLE_METHOD
                 .invoke(CRAFT_PLAYER_CLAZZ.cast(player)));
 
-        for (Object packet : spawnPackets) {
-            SEND_PACKET_METHOD.invoke(playerConnection, packet);
+        int i = 0;
+        for (String line : lines) {
+            if (line.isEmpty()) {
+                i++;
+                continue;
+            }
+
+            SEND_PACKET_METHOD.invoke(playerConnection, spawnPackets.get(i));
+            i++;
         }
     }
 
     public void destroy(Player player) {
+        if (!shown.contains(player.getUniqueId())) {
+            throw new IllegalArgumentException("Hologram is not shown to player");
+        }
+
+        shown.remove(player.getUniqueId());
+
         Object playerConnection = playerConnectionField.get(PLAYER_GET_HANDLE_METHOD
                 .invoke(CRAFT_PLAYER_CLAZZ.cast(player)));
 
-        for (Object packet : destroyPackets) {
-            SEND_PACKET_METHOD.invoke(playerConnection, packet);
+        int i = 0;
+        for (String line : lines) {
+            if (line.isEmpty()) {
+                i++;
+                continue;
+            }
+
+            SEND_PACKET_METHOD.invoke(playerConnection, destroyPackets.get(i));
+            i++;
         }
     }
 }

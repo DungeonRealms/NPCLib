@@ -100,4 +100,9 @@ public class NPC_v1_8_R1 extends NPC {
             playerConnection.sendPacket(packetPlayOutScoreboardTeamUnregister);
         }
     }
+
+    @Override
+    public void updateText(List<String> lines) {
+        hologram.updateText(lines);
+    }
 }

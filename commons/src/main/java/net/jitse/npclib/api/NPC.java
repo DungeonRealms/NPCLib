@@ -50,6 +50,8 @@ public abstract class NPC implements PacketHandler, ActionHandler {
         NPCManager.add(this);
     }
 
+    public abstract void updateText(List<String> lines);
+
     protected GameProfileWrapper generateGameProfile(UUID uuid, String name) {
         GameProfileWrapper gameProfile = new GameProfileWrapper(uuid, name);
 
